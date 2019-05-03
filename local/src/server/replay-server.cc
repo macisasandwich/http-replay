@@ -177,7 +177,7 @@ void TF_Serve(std::thread *t) {
           auto spot{Transactions.find(key)};
           if (spot != Transactions.end()) {
             [[maybe_unused]] auto const &[key, txn] = *spot;
-            req_hdr.update_content_length();
+            req_hdr.update_content_length(req_hdr._method);
             req_hdr.update_transfer_encoding();
             if (req_hdr._content_length_p || req_hdr._chunked_p) {
               Info("Draining request body.");

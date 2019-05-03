@@ -239,11 +239,27 @@ ChunkCodex::Result ChunkCodex::parse(swoc::TextView data,
         _state = State::CR;
         break;
       }
+    case State::POST_BODY_CR:
+      if (*data == '\r') {
+        _state = State::POST_BODY_LF;
+      }
+      ++data;
+      break;
     case State::CR:
       if (*data == '\r') {
         _state = State::LF;
       }
       ++data;
+      break;
+    case State::POST_BODY_LF:
+      if (*data == '\n') {
+        _state = State::SIZE;
+        ++data;
+        _off = 0;
+      } else {
+        _state = State::FINAL;
+        return DONE;
+      }
       break;
     case State::LF:
       if (*data == '\n') {
@@ -262,7 +278,7 @@ ChunkCodex::Result ChunkCodex::parse(swoc::TextView data,
       cb({data.data(), n}, _off, _size);
       data.remove_prefix(n);
       if ((_off += n) >= _size) {
-        _state = State::SIZE;
+        _state = State::POST_BODY_CR;
       }
     } break;
     case State::FINAL:
@@ -275,23 +291,24 @@ ChunkCodex::Result ChunkCodex::parse(swoc::TextView data,
 std::tuple<ssize_t, std::error_code>
 ChunkCodex::transmit(Stream &stream, swoc::TextView data, size_t chunk_size) {
   static const std::error_code NO_ERROR;
-  static constexpr swoc::TextView ZERO_CHUNK{"0\r\n"};
+  static constexpr swoc::TextView ZERO_CHUNK{"0\r\n\r\n"};
 
   swoc::LocalBufferWriter<10> w; // 8 bytes of size (32 bits) CR LF
   ssize_t n;
   ssize_t total = 0;
-  w.print("{:x}{}", chunk_size, HTTP_EOL);
   while (data) {
     if (data.size() < chunk_size) {
-      w.clear().print("{:x}{}", data.size(), HTTP_EOL);
       chunk_size = data.size();
     }
+    w.clear().print("{:x}{}", chunk_size, HTTP_EOL);
     n = stream.write(w.view());
     if (n > 0) {
       n = stream.write({data.data(), chunk_size});
       if (n > 0) {
         total += n;
         if (n == chunk_size) {
+          w.clear().print("{}", HTTP_EOL); // Each chunk much terminate with CRLF
+          stream.write(w.view());
           data.remove_prefix(chunk_size);
         } else {
           return {total, std::error_code(errno, std::system_category())};
@@ -312,6 +329,7 @@ void HttpHeader::global_init() {
   FIELD_CONTENT_LENGTH = localize("Content-Length");
   FIELD_TRANSFER_ENCODING = localize("Transfer-Encoding");
 
+  STATUS_NO_CONTENT[100] = true;
   STATUS_NO_CONTENT[204] = true;
   STATUS_NO_CONTENT[304] = true;
   for (auto code = 400; code < 600; code++) {
@@ -328,18 +346,25 @@ void HttpHeader::set_max_content_length(size_t n) {
   };
 }
 
-swoc::Errata HttpHeader::update_content_length() {
+swoc::Errata HttpHeader::update_content_length(swoc::TextView method) {
   swoc::Errata errata;
   size_t cl = std::numeric_limits<size_t>::max();
   _content_length_p = false;
-  if (auto spot{_fields.find(FIELD_CONTENT_LENGTH)}; spot != _fields.end()) {
-    cl = swoc::svtou(spot->second);
-    if (_content_size != 0 && cl != _content_size) {
-      errata.info(R"(Conflicting sizes using "{}" value {} instead of {}.)", cl,
-                  _content_size);
-    }
-    _content_size = cl;
+  // Some methods ignore the Content-Length for the current transaction
+  if (strcasecmp(method, "HEAD") == 0) {
+    // Don't try chuned encoding later
+    _content_size = 0;
     _content_length_p = true;
+  } else {
+    if (auto spot{_fields.find(FIELD_CONTENT_LENGTH)}; spot != _fields.end()) {
+      cl = swoc::svtou(spot->second);
+      if (_content_size != 0 && cl != _content_size) {
+        errata.info(R"(Conflicting sizes using "{}" value {} instead of {}.)", cl,
+                    _content_size);
+      }
+      _content_size = cl;
+      _content_length_p = true;
+    }
   }
   return errata;
 }
@@ -381,6 +406,12 @@ swoc::Errata HttpHeader::transmit_body(Stream &stream) const {
                    swoc::bwf::If(_chunked_p, " [chunked]"), n, _content_size,
                    ec);
     }
+  } else if (!_content_size && _status && !STATUS_NO_CONTENT[_status]) {
+    // Go ahead and close the connection if it is not specified
+    if (!_chunked_p && !_content_length_p) {
+        Info("No CL or TE, status {} - closing.", _status);
+        stream.close();
+    }
   }
 
   return errata;
@@ -388,6 +419,10 @@ swoc::Errata HttpHeader::transmit_body(Stream &stream) const {
 
 swoc::Errata HttpHeader::transmit(Stream &stream) const {
   swoc::Errata errata;
+  if (stream.is_closed()) {
+    errata.error(R"(Transmit stream is closed)");
+    return errata;
+  }
 
   if (_status) {
     swoc::LocalBufferWriter<MAX_HDR_SIZE> w;
@@ -438,14 +473,14 @@ swoc::Errata HttpHeader::drain_body(Stream &stream,
   }
 
   // If there's a status, and it indicates no body, we're done.
-  if (_status && STATUS_NO_CONTENT[_status] && !_content_length_p) {
+  if (_status && STATUS_NO_CONTENT[_status] && !_content_length_p && !_chunked_p) {
     return errata;
   }
 
   buff.reserve(std::min<size_t>(content_length, MAX_DRAIN_BUFFER_SIZE));
 
   if (stream.is_closed()) {
-    errata.error(R"(drain_body: stream closed)");
+    errata.error(R"(drain_body: stream closed) could not read {} bytes)", content_length);
     return errata; 
   }
 
@@ -469,6 +504,7 @@ swoc::Errata HttpHeader::drain_body(Stream &stream,
           // Is this an error? It's chunked, so an actual close seems unexpected
           // - should have parsed the empty chunk.
           Info("Connection closed on unbounded body.");
+          result = ChunkCodex::DONE;
         } else {
           errata.error(
               R"(Response underrun - received {} bytes of content, expected {}, when file closed because {}.)",
@@ -481,7 +517,8 @@ swoc::Errata HttpHeader::drain_body(Stream &stream,
         (content_length != UNBOUNDED && body_size != content_length)) {
       errata.error(R"(Invalid response - expected {} bytes, drained {} byts.)",
                    content_length, body_size);
-    }
+      return errata;
+    } 
     Info("Drained {} chunked bytes.", body_size);
   } else {
     body_size = initial.size();
@@ -499,6 +536,11 @@ swoc::Errata HttpHeader::drain_body(Stream &stream,
         break;
       }
       body_size += n;
+    }
+    if (body_size > content_length) {
+      errata.error(R"(Invalid response - expected {} fixed bytes, drained {} byts.)",
+                   content_length, body_size);
+      return errata;
     }
     Info("Drained {} bytes.", body_size);
   }
@@ -549,6 +591,7 @@ swoc::Rv<ssize_t> HttpHeader::read_header(Stream &reader,
         zret.errata().error(
             R"(Connection closed unexpectedly after {} bytes while waiting for header - {}.)",
             w.size(), swoc::bwf::Errno{});
+         printf("error\n");
       } else {
         zret = 0; // clean close between transactions.
       }
@@ -638,7 +681,7 @@ swoc::Errata HttpHeader::load(YAML::Node const &node) {
       auto field_list_node{hdr_node[YAML_FIELDS_KEY]};
       auto result{this->parse_fields(field_list_node)};
       if (result.is_ok()) {
-        errata.note(this->update_content_length());
+        errata.note(this->update_content_length(_method));
         errata.note(this->update_transfer_encoding());
       } else {
         errata.error("Failed to parse response at {}", node.Mark());
@@ -822,6 +865,20 @@ swoc::Errata Load_Replay_File(swoc::file::path const &path,
                               result.note(handler.txn_close());
                             }
                             errata = std::move(result);
+                          // Deal with the cached case
+                          } else if (txn_node[YAML_CLIENT_REQ_KEY] && txn_node[YAML_PROXY_RSP_KEY]) {
+                            result.note(handler.txn_open(txn_node));
+                            if (result.is_ok()) {
+                              result.note(handler.client_request(
+                                  txn_node[YAML_CLIENT_REQ_KEY]));
+                              result.note(handler.proxy_request(
+                                  txn_node[YAML_CLIENT_REQ_KEY]));
+                              result.note(handler.proxy_response(
+                                  txn_node[YAML_PROXY_RSP_KEY]));
+                              result.note(handler.server_response(
+                                  txn_node[YAML_PROXY_RSP_KEY]));
+                              result.note(handler.txn_close());
+                            }
                           } else {
                             errata.error(
                                 R"(Transaction node at {} in "{}" did not contain all four required HTTP header keys.)",
