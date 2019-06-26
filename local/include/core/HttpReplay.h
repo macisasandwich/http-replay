@@ -349,7 +349,8 @@ inline BufferWriter &bwformat(BufferWriter &w, bwf::Spec const &spec,
 } // namespace swoc
 
 /** Protocol class for loading a replay file.
- * The client and server are expected subclass this an provide an implementation.
+ * The client and server are expected subclass this an provide an
+ * implementation.
  */
 class ReplayFileHandler {
 public:
@@ -363,7 +364,8 @@ public:
    * @param node Transaction node.
    * @return Errors, if any.
    *
-   * This is required to do any base validation of the transaction such as verifying required keys.
+   * This is required to do any base validation of the transaction such as
+   * verifying required keys.
    */
   virtual swoc::Errata txn_open(YAML::Node const &node) { return {}; }
 

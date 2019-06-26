@@ -856,16 +856,20 @@ swoc::Errata Load_Replay_File(swoc::file::path const &path,
                         for (auto const &txn_node : txn_list_node) {
                           result = handler.txn_open(txn_node);
                           if (result.is_ok()) {
-                            if (auto creq_node{txn_node[YAML_CLIENT_REQ_KEY]}; creq_node) {
+                            if (auto creq_node{txn_node[YAML_CLIENT_REQ_KEY]};
+                                creq_node) {
                               result.note(handler.client_request(creq_node));
                             }
-                            if (auto preq_node{txn_node[YAML_PROXY_REQ_KEY]}; preq_node) {
+                            if (auto preq_node{txn_node[YAML_PROXY_REQ_KEY]};
+                                preq_node) {
                               result.note(handler.proxy_request(preq_node));
                             }
-                            if (auto ursp_node{txn_node[YAML_SERVER_RSP_KEY]}; ursp_node) {
+                            if (auto ursp_node{txn_node[YAML_SERVER_RSP_KEY]};
+                                ursp_node) {
                               result.note(handler.server_response(ursp_node));
                             }
-                            if (auto prsp_node{txn_node[YAML_PROXY_RSP_KEY]}; prsp_node) {
+                            if (auto prsp_node{txn_node[YAML_PROXY_RSP_KEY]};
+                                prsp_node) {
                               result.note(handler.proxy_response(prsp_node));
                             }
                             result.note(handler.txn_close());
@@ -917,24 +921,26 @@ Load_Replay_Directory(swoc::file::path const &path,
 
   dirent **elements = nullptr;
 
-  auto stat { swoc::file::status(path, ec) };
+  auto stat{swoc::file::status(path, ec)};
   if (ec) {
     return Errata().error(R"(Invalid test directory "{}" - [{}])", path, ec);
   } else if (swoc::file::is_regular_file(stat)) {
     return loader(path);
-  } else if (! swoc::file::is_dir(stat)) {
+  } else if (!swoc::file::is_dir(stat)) {
     return Errata().error(R"("{}" is not a file or a directory.)", path);
   }
 
   if (0 == chdir(path.c_str())) {
-    int n_sessions =
-        scandir(".", &elements,
-                [](const dirent *entry) -> int {
-          auto extension = swoc::TextView{entry->d_name, strlen(entry->d_name)}.suffix_at('.');
+    int n_sessions = scandir(
+        ".", &elements,
+        [](const dirent *entry) -> int {
+          auto extension =
+              swoc::TextView{entry->d_name, strlen(entry->d_name)}.suffix_at(
+                  '.');
           return 0 == strcasecmp(extension, "json") ||
                  0 == strcasecmp(extension, "yaml");
-                },
-                &alphasort);
+        },
+        &alphasort);
     if (n_sessions > 0) {
       std::atomic<int> idx{0};
       swoc::MemSpan<dirent *> entries{elements,
