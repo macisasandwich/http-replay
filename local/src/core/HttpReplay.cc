@@ -34,6 +34,8 @@
 #include "swoc/bwf_ex.h"
 #include "swoc/bwf_std.h"
 
+using swoc::Errata;
+
 bool Verbose = false;
 
 bool HttpHeader::_frozen = false;
@@ -911,8 +913,18 @@ Load_Replay_Directory(swoc::file::path const &path,
                       int n_threads) {
   swoc::Errata errata;
   std::mutex local_mutex;
+  std::error_code ec;
 
   dirent **elements = nullptr;
+
+  auto stat { swoc::file::status(path, ec) };
+  if (ec) {
+    return Errata().error(R"(Invalid test directory "{}" - [{}])", path, ec);
+  } else if (swoc::file::is_regular_file(stat)) {
+    return loader(path);
+  } else if (! swoc::file::is_dir(stat)) {
+    return Errata().error(R"("{}" is not a file or a directory.)", path);
+  }
 
   if (0 == chdir(path.c_str())) {
     int n_sessions =
