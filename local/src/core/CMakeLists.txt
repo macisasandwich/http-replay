@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.12)
 
-project(lib-replay-core)
+project(replay-core)
 set(CMAKE_CXX_STANDARD 17)
 include(GNUInstallDirs)
 
@@ -8,21 +8,21 @@ include(GNUInstallDirs)
 find_package(swoc++ CONFIG REQUIRED)
 find_package(OpenSSL REQUIRED)
 
-add_library(lib-replay-core STATIC
+add_library(replay-core STATIC
     ArgParser.cc
     HttpReplay.cc
 )
 
-target_include_directories(lib-replay-core PUBLIC)
-target_link_libraries(lib-replay-core PUBLIC swoc++::swoc++)
-#target_include_directories(lib-replay-core swoc::swoc)
+target_include_directories(replay-core PUBLIC)
+target_link_libraries(replay-core PUBLIC swoc++::swoc++)
 
-install(TARGETS lib-replay-core
-    EXPORT lib-replay-core-config
+install(TARGETS replay-core ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
+install(TARGETS replay-core
+    EXPORT replay-core-config
     ARCHIVE DESTINATION ${CMAKE_INSTALL_BINDIR}
     )
-install(EXPORT lib-replay-core-config
+install(EXPORT replay-core-config
     NAMESPACE replay-core::
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/replay-core
     )
-export(TARGETS lib-replay-core FILE lib-replay-core-config.cmake)
+export(TARGETS replay-core FILE replay-core-config.cmake)

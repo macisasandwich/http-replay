@@ -25,6 +25,7 @@ inline BufferWriter &bwformat(BufferWriter &w, bwf::Spec const &spec,
 } // namespace swoc
 
 using swoc::TextView;
+using swoc::Errata;
 
 struct Txn {
   HttpHeader _req; ///< Request to send.
@@ -147,7 +148,17 @@ swoc::Errata ClientReplayFileHandler::ssn_open(YAML::Node const &node) {
   return errata;
 }
 
-swoc::Errata ClientReplayFileHandler::txn_open(YAML::Node const &) {
+swoc::Errata ClientReplayFileHandler::txn_open(YAML::Node const &node) {
+  Errata errata;
+  if (! node[YAML_CLIENT_REQ_KEY]) {
+    errata.error(R"(Transaction node at {} does not have a client request [{}].)", node.Mark(), YAML_CLIENT_REQ_KEY);
+  }
+  if (! node[YAML_PROXY_RSP_KEY]) {
+    errata.error(R"(Transaction node at {} does not have a proxy response [{}].)", node.Mark(), YAML_PROXY_RSP_KEY);
+  }
+  if (! errata.is_ok()) {
+    return {std::move(errata)};
+  }
   LoadMutex.lock();
   return {};
 }

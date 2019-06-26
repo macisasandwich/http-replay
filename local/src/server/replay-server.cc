@@ -35,6 +35,7 @@
 
 using swoc::BufferWriter;
 using swoc::TextView;
+using swoc::Errata;
 
 void TF_Serve(std::thread *t);
 
@@ -106,7 +107,17 @@ void ServerReplayFileHandler::reset() {
   new (&_txn) Txn;
 }
 
-swoc::Errata ServerReplayFileHandler::txn_open(YAML::Node const &) {
+swoc::Errata ServerReplayFileHandler::txn_open(YAML::Node const &node) {
+  Errata errata;
+  if (! node[YAML_PROXY_REQ_KEY]) {
+    errata.error(R"(Transaction node at {} does not have a proxy request [{}].)", node.Mark(), YAML_PROXY_REQ_KEY);
+  }
+  if (! node[YAML_SERVER_RSP_KEY]) {
+    errata.error(R"(Transaction node at {} does not have a server response [{}].)", node.Mark(), YAML_SERVER_RSP_KEY);
+  }
+  if (! errata.is_ok()) {
+    return std::move(errata);
+  }
   LoadMutex.lock();
   return {};
 }
@@ -377,7 +388,7 @@ void Engine::command_run() {
   }
   HttpHeader::set_max_content_length(max_content_length);
 
-  std::cout << "Ready" << std::endl;
+  std::cout << "Ready with " << Transactions.size() << " transactions." << std::endl;
 
   for (auto &server_addr : server_addrs) {
     // Set up listen port.

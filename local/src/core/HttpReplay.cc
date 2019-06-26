@@ -852,62 +852,40 @@ swoc::Errata Load_Replay_File(swoc::file::path const &path,
                     if (txn_list_node.IsSequence()) {
                       if (txn_list_node.size() > 0) {
                         for (auto const &txn_node : txn_list_node) {
-                          if (txn_node[YAML_PROXY_REQ_KEY] &&
-                              txn_node[YAML_SERVER_RSP_KEY] &&
-                              txn_node[YAML_CLIENT_REQ_KEY] &&
-                              txn_node[YAML_PROXY_RSP_KEY]) {
-                            result.note(handler.txn_open(txn_node));
-                            if (result.is_ok()) {
-                              result.note(handler.client_request(
-                                  txn_node[YAML_CLIENT_REQ_KEY]));
-                              result.note(handler.proxy_request(
-                                  txn_node[YAML_PROXY_REQ_KEY]));
-                              result.note(handler.server_response(
-                                  txn_node[YAML_SERVER_RSP_KEY]));
-                              result.note(handler.proxy_response(
-                                  txn_node[YAML_PROXY_RSP_KEY]));
-                              result.note(handler.txn_close());
+                          result = handler.txn_open(txn_node);
+                          if (result.is_ok()) {
+                            if (auto creq_node{txn_node[YAML_CLIENT_REQ_KEY]}; creq_node) {
+                              result.note(handler.client_request(creq_node));
                             }
-                            errata = std::move(result);
-                            // Deal with the cached case
-                          } else if (txn_node[YAML_CLIENT_REQ_KEY] &&
-                                     txn_node[YAML_PROXY_RSP_KEY]) {
-                            result.note(handler.txn_open(txn_node));
-                            if (result.is_ok()) {
-                              result.note(handler.client_request(
-                                  txn_node[YAML_CLIENT_REQ_KEY]));
-                              result.note(handler.proxy_request(
-                                  txn_node[YAML_CLIENT_REQ_KEY]));
-                              result.note(handler.proxy_response(
-                                  txn_node[YAML_PROXY_RSP_KEY]));
-                              result.note(handler.server_response(
-                                  txn_node[YAML_PROXY_RSP_KEY]));
-                              result.note(handler.txn_close());
+                            if (auto preq_node{txn_node[YAML_PROXY_REQ_KEY]}; preq_node) {
+                              result.note(handler.proxy_request(preq_node));
                             }
-                          } else {
-                            errata.error(
-                                R"(Transaction node at {} in "{}" did not contain all four required HTTP header keys.)",
-                                txn_node.Mark(), path);
+                            if (auto ursp_node{txn_node[YAML_SERVER_RSP_KEY]}; ursp_node) {
+                              result.note(handler.server_response(ursp_node));
+                            }
+                            if (auto prsp_node{txn_node[YAML_PROXY_RSP_KEY]}; prsp_node) {
+                              result.note(handler.proxy_response(prsp_node));
+                            }
+                            result.note(handler.txn_close());
                           }
                         }
                       } else {
-                        errata.info(
+                        result.info(
                             R"(Transaction list at {} in session at {} in "{}" is an empty list.)",
                             txn_list_node.Mark(), ssn_node.Mark(), path);
                       }
                     } else {
-                      errata.error(
+                      result.error(
                           R"(Transaction list at {} in session at {} in "{}" is not a list.)",
                           txn_list_node.Mark(), ssn_node.Mark(), path);
                     }
                   } else {
-                    errata.error(R"(Session at {} in "{}" has no "{}" key.)",
+                    result.error(R"(Session at {} in "{}" has no "{}" key.)",
                                  ssn_node.Mark(), path, YAML_TXN_KEY);
                   }
                   result.note(handler.ssn_close());
-                } else {
-                  errata.note(result);
                 }
+                errata.note(result);
               }
             } else {
               errata.info(R"(Session list at {} in "{}" is an empty list.)",

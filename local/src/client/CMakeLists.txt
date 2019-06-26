@@ -17,7 +17,7 @@ add_executable(replay-client
     replay-client.cc
 )
 
-target_link_libraries(replay-client PUBLIC lib-replay-core swoc++::swoc++ yaml-cpp Threads::Threads OpenSSL::SSL OpenSSL::Crypto)
+target_link_libraries(replay-client PUBLIC replay-core swoc++::swoc++ yaml-cpp Threads::Threads OpenSSL::SSL OpenSSL::Crypto)
 
 install(TARGETS replay-client
     EXPORT replay-client-config

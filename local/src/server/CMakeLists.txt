@@ -15,14 +15,15 @@ add_executable(replay-server
     replay-server.cc
 )
 
-target_link_libraries(replay-server PUBLIC lib-replay-core swoc++::swoc++ yaml-cpp Threads::Threads OpenSSL::SSL OpenSSL::Crypto)
+target_link_libraries(replay-server PUBLIC replay-core swoc++::swoc++ yaml-cpp Threads::Threads OpenSSL::SSL OpenSSL::Crypto)
 
+install(TARGETS replay-server RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 install(TARGETS replay-server
     EXPORT replay-server-config
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
     )
 install(EXPORT replay-server-config
-    NAMESPACE replay-serverl::
+    NAMESPACE replay-server::
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/replay-server
     )
 export(TARGETS replay-server FILE replay-server-config.cmake)
