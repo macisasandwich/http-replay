@@ -307,7 +307,8 @@ ChunkCodex::transmit(Stream &stream, swoc::TextView data, size_t chunk_size) {
       if (n > 0) {
         total += n;
         if (n == chunk_size) {
-          w.clear().print("{}", HTTP_EOL); // Each chunk much terminate with CRLF
+          w.clear().print("{}",
+                          HTTP_EOL); // Each chunk much terminate with CRLF
           stream.write(w.view());
           data.remove_prefix(chunk_size);
         } else {
@@ -359,8 +360,8 @@ swoc::Errata HttpHeader::update_content_length(swoc::TextView method) {
     if (auto spot{_fields.find(FIELD_CONTENT_LENGTH)}; spot != _fields.end()) {
       cl = swoc::svtou(spot->second);
       if (_content_size != 0 && cl != _content_size) {
-        errata.info(R"(Conflicting sizes using "{}" value {} instead of {}.)", cl,
-                    _content_size);
+        errata.info(R"(Conflicting sizes using "{}" value {} instead of {}.)",
+                    cl, _content_size);
       }
       _content_size = cl;
       _content_length_p = true;
@@ -409,8 +410,8 @@ swoc::Errata HttpHeader::transmit_body(Stream &stream) const {
   } else if (!_content_size && _status && !STATUS_NO_CONTENT[_status]) {
     // Go ahead and close the connection if it is not specified
     if (!_chunked_p && !_content_length_p) {
-        Info("No CL or TE, status {} - closing.", _status);
-        stream.close();
+      Info("No CL or TE, status {} - closing.", _status);
+      stream.close();
     }
   }
 
@@ -473,15 +474,17 @@ swoc::Errata HttpHeader::drain_body(Stream &stream,
   }
 
   // If there's a status, and it indicates no body, we're done.
-  if (_status && STATUS_NO_CONTENT[_status] && !_content_length_p && !_chunked_p) {
+  if (_status && STATUS_NO_CONTENT[_status] && !_content_length_p &&
+      !_chunked_p) {
     return errata;
   }
 
   buff.reserve(std::min<size_t>(content_length, MAX_DRAIN_BUFFER_SIZE));
 
   if (stream.is_closed()) {
-    errata.error(R"(drain_body: stream closed) could not read {} bytes)", content_length);
-    return errata; 
+    errata.error(R"(drain_body: stream closed) could not read {} bytes)",
+                 content_length);
+    return errata;
   }
 
   if (_chunked_p) {
@@ -518,7 +521,7 @@ swoc::Errata HttpHeader::drain_body(Stream &stream,
       errata.error(R"(Invalid response - expected {} bytes, drained {} byts.)",
                    content_length, body_size);
       return errata;
-    } 
+    }
     Info("Drained {} chunked bytes.", body_size);
   } else {
     body_size = initial.size();
@@ -538,8 +541,9 @@ swoc::Errata HttpHeader::drain_body(Stream &stream,
       body_size += n;
     }
     if (body_size > content_length) {
-      errata.error(R"(Invalid response - expected {} fixed bytes, drained {} byts.)",
-                   content_length, body_size);
+      errata.error(
+          R"(Invalid response - expected {} fixed bytes, drained {} byts.)",
+          content_length, body_size);
       return errata;
     }
     Info("Drained {} bytes.", body_size);
@@ -591,7 +595,7 @@ swoc::Rv<ssize_t> HttpHeader::read_header(Stream &reader,
         zret.errata().error(
             R"(Connection closed unexpectedly after {} bytes while waiting for header - {}.)",
             w.size(), swoc::bwf::Errno{});
-         printf("error\n");
+        printf("error\n");
       } else {
         zret = 0; // clean close between transactions.
       }
@@ -865,8 +869,9 @@ swoc::Errata Load_Replay_File(swoc::file::path const &path,
                               result.note(handler.txn_close());
                             }
                             errata = std::move(result);
-                          // Deal with the cached case
-                          } else if (txn_node[YAML_CLIENT_REQ_KEY] && txn_node[YAML_PROXY_RSP_KEY]) {
+                            // Deal with the cached case
+                          } else if (txn_node[YAML_CLIENT_REQ_KEY] &&
+                                     txn_node[YAML_PROXY_RSP_KEY]) {
                             result.note(handler.txn_open(txn_node));
                             if (result.is_ok()) {
                               result.note(handler.client_request(
@@ -935,12 +940,9 @@ Load_Replay_Directory(swoc::file::path const &path,
     int n_sessions =
         scandir(".", &elements,
                 [](const dirent *entry) -> int {
-                  return 0 == strcasecmp(swoc::TextView{entry->d_name,
-                                                        strlen(entry->d_name)}
-                                             .suffix_at('.'),
-                                         "json")
-                             ? 1
-                             : 0;
+          auto extension = swoc::TextView{entry->d_name, strlen(entry->d_name)}.suffix_at('.');
+          return 0 == strcasecmp(extension, "json") ||
+                 0 == strcasecmp(extension, "yaml");
                 },
                 &alphasort);
     if (n_sessions > 0) {
@@ -977,8 +979,7 @@ Load_Replay_Directory(swoc::file::path const &path,
   return errata;
 }
 
-swoc::Errata parse_ips(std::string arg, std::deque<swoc::IPEndpoint> &target)
-{
+swoc::Errata parse_ips(std::string arg, std::deque<swoc::IPEndpoint> &target) {
   swoc::Errata errata;
   int offset = 0;
   int new_offset;
@@ -992,12 +993,12 @@ swoc::Errata parse_ips(std::string arg, std::deque<swoc::IPEndpoint> &target)
       return errata;
     }
     target.push_back(addr);
-  } 
+  }
   return errata;
 }
 
-swoc::Errata resolve_ips(std::string arg, std::deque<swoc::IPEndpoint> &target)
-{
+swoc::Errata resolve_ips(std::string arg,
+                         std::deque<swoc::IPEndpoint> &target) {
   swoc::Errata errata;
   int offset = 0;
   int new_offset;
@@ -1011,7 +1012,7 @@ swoc::Errata resolve_ips(std::string arg, std::deque<swoc::IPEndpoint> &target)
       return errata;
     }
     target.push_back(tmp_target);
-  } 
+  }
   return errata;
 }
 

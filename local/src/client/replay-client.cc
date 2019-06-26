@@ -195,10 +195,7 @@ swoc::Errata ClientReplayFileHandler::ssn_close() {
   return {};
 }
 
-void 
-do_error() {
-printf("Bad stuff\n");
-}
+void do_error() { printf("Bad stuff\n"); }
 
 swoc::Errata Run_Transaction(Stream &stream, Txn const &txn) {
   Info("Running transaction.");
@@ -219,7 +216,8 @@ swoc::Errata Run_Transaction(Stream &stream, Txn const &txn) {
           auto read_result{rsp_hdr.read_header(stream, w)};
           if (read_result.is_ok()) {
             body_offset = read_result;
-            auto result{rsp_hdr.parse_response(TextView(w.data(), body_offset))};
+            auto result{
+                rsp_hdr.parse_response(TextView(w.data(), body_offset))};
             if (result.is_ok()) {
             } else {
               errata.error(R"(Failed to parse post 100 header.)");
@@ -229,25 +227,31 @@ swoc::Errata Run_Transaction(Stream &stream, Txn const &txn) {
             errata.error(R"(Failed to read post 100 header.)");
             return errata;
           }
-        } 
-        if (rsp_hdr._status != txn._rsp._status && rsp_hdr._status != 200 && rsp_hdr._status != 304 && txn._rsp._status != 200 && txn._rsp._status != 304) {
-          errata.error(R"(Invalid status expected {} got {}. url={}.)", txn._rsp._status, rsp_hdr._status, txn._req._url);
+        }
+        if (rsp_hdr._status != txn._rsp._status && rsp_hdr._status != 200 &&
+            rsp_hdr._status != 304 && txn._rsp._status != 200 &&
+            txn._rsp._status != 304) {
+          errata.error(R"(Invalid status expected {} got {}. url={}.)",
+                       txn._rsp._status, rsp_hdr._status, txn._req._url);
           do_error();
           return errata;
         }
         Info("Reading response body offset={}.", w.view().substr(body_offset));
         rsp_hdr.update_content_length(txn._req._method);
         rsp_hdr.update_transfer_encoding();
-        /* Looks like missing plugins is causing issues with length mismatches */
+        /* Looks like missing plugins is causing issues with length mismatches
+         */
         /*
         if (txn._rsp._content_length_p != rsp_hdr._content_length_p) {
-          errata.error(R"(Content length specificaton mismatch: got {} ({}) expected {}({}) . url={})", rsp_hdr._content_length_p ? "length" : "chunked", rsp_hdr._content_size,
-                       txn._rsp._content_length_p ? "length" : "chunked" , txn._rsp._content_size, txn._req._url);
-          return errata;
+          errata.error(R"(Content length specificaton mismatch: got {} ({})
+        expected {}({}) . url={})", rsp_hdr._content_length_p ? "length" :
+        "chunked", rsp_hdr._content_size, txn._rsp._content_length_p ? "length"
+        : "chunked" , txn._rsp._content_size, txn._req._url); return errata;
         }
-        if (txn._rsp._content_length_p && txn._rsp._content_size != rsp_hdr._content_size) {
-          errata.error(R"(Content length mismatch: got {}, expected {}. url={})", rsp_hdr._content_size, txn._rsp._content_size, txn._req._url);
-          return errata;
+        if (txn._rsp._content_length_p && txn._rsp._content_size !=
+        rsp_hdr._content_size) { errata.error(R"(Content length mismatch: got
+        {}, expected {}. url={})", rsp_hdr._content_size,
+        txn._rsp._content_size, txn._req._url); return errata;
         }
         */
         errata = rsp_hdr.drain_body(stream, w.view().substr(body_offset));
@@ -272,15 +276,16 @@ swoc::Errata Run_Transaction(Stream &stream, Txn const &txn) {
 swoc::Errata do_connect(Stream *stream, const swoc::IPEndpoint *real_target) {
   swoc::Errata errata;
   int socket_fd = socket(real_target->family(), SOCK_STREAM, 0);
-  if (0 <= socket_fd) { 
+  if (0 <= socket_fd) {
     int ONE = 1;
     struct linger l;
-    l.l_onoff  = 0;
+    l.l_onoff = 0;
     l.l_linger = 0;
     setsockopt(socket_fd, SOL_SOCKET, SO_LINGER, (char *)&l, sizeof(l));
-    if (setsockopt(socket_fd, SOL_SOCKET, SO_REUSEADDR, &ONE, sizeof(int)) < 0) {
+    if (setsockopt(socket_fd, SOL_SOCKET, SO_REUSEADDR, &ONE, sizeof(int)) <
+        0) {
       errata.error(R"(Could not set reuseaddr on socket {} - {}.)", socket_fd,
-                     swoc::bwf::Errno{});
+                   swoc::bwf::Errno{});
     } else {
       errata = stream->open(socket_fd);
       if (errata.is_ok()) {
@@ -293,7 +298,7 @@ swoc::Errata do_connect(Stream *stream, const swoc::IPEndpoint *real_target) {
         }
       } else {
         errata.error(R"(Failed to open stream - {})", swoc::bwf::Errno{});
-      }  
+      }
     }
   } else {
     errata.error(R"(Failed to open socket - {})", swoc::bwf::Errno{});
@@ -344,19 +349,22 @@ void TF_Client(std::thread *t) {
   info._thread = t;
   int target_index = 0;
   int target_https_index = 0;
-  
+
   while (!Shutdown_Flag) {
     swoc::Errata errata;
     info._ssn = nullptr;
     Client_Thread_Pool.wait_for_work(&info);
 
     if (info._ssn != nullptr) {
-      swoc::Errata result = Run_Session(*info._ssn, Target[target_index], Target_Https[target_https_index]);
+      swoc::Errata result = Run_Session(*info._ssn, Target[target_index],
+                                        Target_Https[target_https_index]);
       if (!result.is_ok()) {
         std::cerr << result;
       }
-      if (++target_index >= Target.size()) target_index = 0;
-      if (++target_https_index >= Target_Https.size()) target_https_index = 0;
+      if (++target_index >= Target.size())
+        target_index = 0;
+      if (++target_https_index >= Target_Https.size())
+        target_https_index = 0;
     }
   }
 }
@@ -374,7 +382,10 @@ struct Engine {
 
   static constexpr swoc::TextView COMMAND_RUN{"run"};
   static constexpr swoc::TextView COMMAND_RUN_ARGS{
-      "Arguments:\n\t<dir>: Directory containing replay files.\n\t<upstream http>: hostname and port for http requests. Can be a comma seprated list\n\t<upstream https>: hostname and port for https requests.  Can be a comma separated list "};
+      "Arguments:\n\t<dir>: Directory containing replay files.\n\t<upstream "
+      "http>: hostname and port for http requests. Can be a comma seprated "
+      "list\n\t<upstream https>: hostname and port for https requests.  Can be "
+      "a comma separated list "};
   void command_run();
 
   /// Status code to return to the operating system.
@@ -404,11 +415,11 @@ void Engine::command_run() {
     Proxy_Mode = true;
   }
 
-  erratum =resolve_ips(args[1], Target);
+  erratum = resolve_ips(args[1], Target);
   if (!erratum.is_ok()) {
     return;
   }
-  erratum =resolve_ips(args[2], Target_Https);
+  erratum = resolve_ips(args[2], Target_Https);
   if (!erratum.is_ok()) {
     return;
   }
