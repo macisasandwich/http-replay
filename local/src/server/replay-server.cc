@@ -306,12 +306,17 @@ void Engine::command_run() {
   auto server_addr_arg{arguments.get("listen")};
   auto server_addr_https_arg{arguments.get("listen-https")};
   auto cert_arg{arguments.get("cert")};
+  auto key_arg{arguments.get("key")};
 
   swoc::LocalBufferWriter<1024> w;
 
   if (args.size() < 1) {
     errata.error(
         R"("run" command requires a directory path as an argument.)");
+  }
+
+  if (key_arg) {
+    HttpHeader::_key_format = key_arg[0];
   }
 
   if (server_addr_arg) {
@@ -432,6 +437,7 @@ int main(int argc, const char *argv[]) {
       .add_option("--listen-https", "",
                   "Listen TLS address and port. Can be a comma separated list.",
                   "", 1, "")
+      .add_option("--key", "-k", "Transaction key format", "", 1, "")
       .add_option("--cert", "", "Specify certificate file", "", 1, "");
 
   // parse the arguments

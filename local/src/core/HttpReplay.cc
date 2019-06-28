@@ -35,6 +35,8 @@
 #include "swoc/bwf_std.h"
 
 using swoc::Errata;
+using swoc::TextView;
+using namespace swoc::literals;
 
 bool Verbose = false;
 
@@ -740,10 +742,9 @@ HttpHeader::parse_request(swoc::TextView data) {
 
     auto first_line{data.take_prefix_at('\n')};
     if (first_line) {
-      if (first_line.suffix(1)[0] == '\r') {
-        first_line.remove_suffix(1);
-      }
-      _method = this->localize(first_line.prefix_if(&isspace));
+      first_line.remove_suffix_if(&isspace);
+      _method = this->localize(first_line.take_prefix_if(&isspace));
+      _url = this->localize(first_line.ltrim_if(&isspace).take_prefix_if(&isspace));
 
       while (data) {
         auto field{data.take_prefix_at('\n').rtrim_if(&isspace)};
@@ -819,6 +820,8 @@ operator()(BufferWriter &w, const swoc::bwf::Spec &spec) const {
     } else {
       bwformat(w, spec, "*N/A*");
     }
+  } else if (0 == strcasecmp("url"_tv, name)) {
+    bwformat(w, spec, _hdr._url);
   } else {
     bwformat(w, spec, "*N/A*");
   }
