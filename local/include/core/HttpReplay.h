@@ -63,7 +63,7 @@ static const std::string YAML_HTTP_URL_KEY{"url"};
 static const std::string YAML_CONTENT_KEY{"content"};
 static const std::string YAML_CONTENT_LENGTH_KEY{"size"};
 
-static constexpr size_t MAX_HDR_SIZE = 131072;	// Max our ATS is configured for
+static constexpr size_t MAX_HDR_SIZE = 131072; // Max our ATS is configured for
 static constexpr size_t MAX_DRAIN_BUFFER_SIZE = 1 << 20;
 /// HTTP end of line.
 static constexpr swoc::TextView HTTP_EOL{"\r\n"};
@@ -348,13 +348,27 @@ inline BufferWriter &bwformat(BufferWriter &w, bwf::Spec const &spec,
 }
 } // namespace swoc
 
+/** Protocol class for loading a replay file.
+ * The client and server are expected subclass this an provide an
+ * implementation.
+ */
 class ReplayFileHandler {
 public:
   virtual swoc::Errata file_open(swoc::file::path const &path) { return {}; }
   virtual swoc::Errata file_close() { return {}; }
   virtual swoc::Errata ssn_open(YAML::Node const &node) { return {}; }
   virtual swoc::Errata ssn_close() { return {}; }
+
+  /** Open the transaction node.
+   *
+   * @param node Transaction node.
+   * @return Errors, if any.
+   *
+   * This is required to do any base validation of the transaction such as
+   * verifying required keys.
+   */
   virtual swoc::Errata txn_open(YAML::Node const &node) { return {}; }
+
   virtual swoc::Errata txn_close() { return {}; }
   virtual swoc::Errata client_request(YAML::Node const &node) { return {}; }
   virtual swoc::Errata proxy_request(YAML::Node const &node) { return {}; }
@@ -380,19 +394,6 @@ inline BufferWriter &bwformat(BufferWriter &w, bwf::Spec const &spec,
   return bwformat(w, spec, path.string());
 }
 } // namespace swoc
-
-namespace std {
-template <typename R>
-class tuple_size<swoc::Rv<R>> : public std::integral_constant<size_t, 2> {};
-template <typename R> class tuple_element<0, swoc::Rv<R>> {
-public:
-  using type = R;
-};
-template <typename R> class tuple_element<1, swoc::Rv<R>> {
-public:
-  using type = swoc::Errata;
-};
-} // namespace std
 
 template <typename... Args> void Info(swoc::TextView fmt, Args &&... args) {
   if (Verbose) {

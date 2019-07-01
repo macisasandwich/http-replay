@@ -2,12 +2,14 @@ cmake_minimum_required(VERSION 3.12)
 set(CMAKE_CXX_STANDARD 17)
 
 set(INSTALL_DIR ${CMAKE_HOME_DIRECTORY})
+set(CMAKE_PREFIX_PATH ${CMAKE_HOME_DIRECTORY})
 if(NOT DEFINED CMAKE_PREFIX_PATH)
     set(CMAKE_PREFIX_PATH ${INSTALL_DIR})
 endif()
+set(CMAKE_INSTALL_BINDIR ${CMAKE_PREFIX_PATH}/bin)
+set(CMAKE_INSTALL_LIBDIR ${CMAKE_PREFIX_PATH}/lib)
 
 include(ExternalProject)
-set(EP_BASE extern)
 
 # All of the arguments to pass to external projects.
 set(_CMAKE_ARGS
@@ -37,19 +39,11 @@ ExternalProject_Add(lib-yaml-cpp
 
 ExternalProject_Add(lib-swoc++
     GIT_REPOSITORY https://github.com/solidwallofcode/libswoc.git
-    GIT_TAG replay
+    GIT_TAG 1.0.6
     GIT_SHALLOW TRUE
     SOURCE_SUBDIR swoc++
     INSTALL_DIR ${INSTALL_DIR}
     CMAKE_ARGS "${_CMAKE_ARGS}"
-    STEP_TARGETS install
-    )
-
-ExternalProject_Add(local
-    SOURCE_DIR ${CMAKE_HOME_DIRECTORY}/local
-    INSTALL_DIR ${INSTALL_DIR}
-    CMAKE_ARGS "${_CMAKE_ARGS}"
-    DEPENDS lib-yaml-cpp-install lib-swoc++-install
     STEP_TARGETS install
     )
 

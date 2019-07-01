@@ -34,6 +34,7 @@
 #include "yaml-cpp/yaml.h"
 
 using swoc::BufferWriter;
+using swoc::Errata;
 using swoc::TextView;
 
 void TF_Serve(std::thread *t);
@@ -106,7 +107,21 @@ void ServerReplayFileHandler::reset() {
   new (&_txn) Txn;
 }
 
-swoc::Errata ServerReplayFileHandler::txn_open(YAML::Node const &) {
+swoc::Errata ServerReplayFileHandler::txn_open(YAML::Node const &node) {
+  Errata errata;
+  if (!node[YAML_PROXY_REQ_KEY]) {
+    errata.error(
+        R"(Transaction node at {} does not have a proxy request [{}].)",
+        node.Mark(), YAML_PROXY_REQ_KEY);
+  }
+  if (!node[YAML_SERVER_RSP_KEY]) {
+    errata.error(
+        R"(Transaction node at {} does not have a server response [{}].)",
+        node.Mark(), YAML_SERVER_RSP_KEY);
+  }
+  if (!errata.is_ok()) {
+    return std::move(errata);
+  }
   LoadMutex.lock();
   return {};
 }
@@ -291,6 +306,7 @@ void Engine::command_run() {
   auto server_addr_arg{arguments.get("listen")};
   auto server_addr_https_arg{arguments.get("listen-https")};
   auto cert_arg{arguments.get("cert")};
+  auto key_arg{arguments.get("key")};
 
   swoc::LocalBufferWriter<1024> w;
 
@@ -298,7 +314,11 @@ void Engine::command_run() {
     errata.error(
         R"("run" command requires a directory path as an argument.)");
   }
-  
+
+  if (key_arg) {
+    HttpHeader::_key_format = key_arg[0];
+  }
+
   if (server_addr_arg) {
     if (server_addr_arg.size() == 1) {
       errata = parse_ips(server_addr_arg[0], server_addrs);
@@ -345,7 +365,7 @@ void Engine::command_run() {
           R"(--listen-https option must have a single value, the listen address and port.)");
     }
   }
-  
+
   if (!errata.is_ok()) {
     return;
   }
@@ -377,9 +397,10 @@ void Engine::command_run() {
   }
   HttpHeader::set_max_content_length(max_content_length);
 
-  std::cout << "Ready" << std::endl;
+  std::cout << "Ready with " << Transactions.size() << " transactions."
+            << std::endl;
 
-  for (auto &server_addr: server_addrs) {
+  for (auto &server_addr : server_addrs) {
     // Set up listen port.
     if (server_addr.is_valid()) {
       errata = do_listen(server_addr, false);
@@ -388,7 +409,7 @@ void Engine::command_run() {
       return;
     }
   }
-  for (auto &server_addr_https: server_addrs_https) {
+  for (auto &server_addr_https : server_addrs_https) {
     if (server_addr_https.is_valid()) {
       errata = do_listen(server_addr_https, true);
     }
@@ -410,9 +431,13 @@ int main(int argc, const char *argv[]) {
   engine.parser
       .add_command("run", "run <dir>: the replay server using data in <dir>",
                    "", 1, [&]() -> void { engine.command_run(); })
-      .add_option("--listen", "", "Listen address and port. Can be a comma separated list.", "", 1, "")
-      .add_option("--listen-https", "", "Listen TLS address and port. Can be a comma separated list.", "", 1,
-                  "")
+      .add_option("--listen", "",
+                  "Listen address and port. Can be a comma separated list.", "",
+                  1, "")
+      .add_option("--listen-https", "",
+                  "Listen TLS address and port. Can be a comma separated list.",
+                  "", 1, "")
+      .add_option("--key", "-k", "Transaction key format", "", 1, "")
       .add_option("--cert", "", "Specify certificate file", "", 1, "");
 
   // parse the arguments

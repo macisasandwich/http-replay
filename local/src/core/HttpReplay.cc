@@ -34,6 +34,10 @@
 #include "swoc/bwf_ex.h"
 #include "swoc/bwf_std.h"
 
+using swoc::Errata;
+using swoc::TextView;
+using namespace swoc::literals;
+
 bool Verbose = false;
 
 bool HttpHeader::_frozen = false;
@@ -307,7 +311,8 @@ ChunkCodex::transmit(Stream &stream, swoc::TextView data, size_t chunk_size) {
       if (n > 0) {
         total += n;
         if (n == chunk_size) {
-          w.clear().print("{}", HTTP_EOL); // Each chunk much terminate with CRLF
+          w.clear().print("{}",
+                          HTTP_EOL); // Each chunk much terminate with CRLF
           stream.write(w.view());
           data.remove_prefix(chunk_size);
         } else {
@@ -359,8 +364,8 @@ swoc::Errata HttpHeader::update_content_length(swoc::TextView method) {
     if (auto spot{_fields.find(FIELD_CONTENT_LENGTH)}; spot != _fields.end()) {
       cl = swoc::svtou(spot->second);
       if (_content_size != 0 && cl != _content_size) {
-        errata.info(R"(Conflicting sizes using "{}" value {} instead of {}.)", cl,
-                    _content_size);
+        errata.info(R"(Conflicting sizes using "{}" value {} instead of {}.)",
+                    cl, _content_size);
       }
       _content_size = cl;
       _content_length_p = true;
@@ -409,8 +414,8 @@ swoc::Errata HttpHeader::transmit_body(Stream &stream) const {
   } else if (!_content_size && _status && !STATUS_NO_CONTENT[_status]) {
     // Go ahead and close the connection if it is not specified
     if (!_chunked_p && !_content_length_p) {
-        Info("No CL or TE, status {} - closing.", _status);
-        stream.close();
+      Info("No CL or TE, status {} - closing.", _status);
+      stream.close();
     }
   }
 
@@ -473,15 +478,17 @@ swoc::Errata HttpHeader::drain_body(Stream &stream,
   }
 
   // If there's a status, and it indicates no body, we're done.
-  if (_status && STATUS_NO_CONTENT[_status] && !_content_length_p && !_chunked_p) {
+  if (_status && STATUS_NO_CONTENT[_status] && !_content_length_p &&
+      !_chunked_p) {
     return errata;
   }
 
   buff.reserve(std::min<size_t>(content_length, MAX_DRAIN_BUFFER_SIZE));
 
   if (stream.is_closed()) {
-    errata.error(R"(drain_body: stream closed) could not read {} bytes)", content_length);
-    return errata; 
+    errata.error(R"(drain_body: stream closed) could not read {} bytes)",
+                 content_length);
+    return errata;
   }
 
   if (_chunked_p) {
@@ -518,7 +525,7 @@ swoc::Errata HttpHeader::drain_body(Stream &stream,
       errata.error(R"(Invalid response - expected {} bytes, drained {} byts.)",
                    content_length, body_size);
       return errata;
-    } 
+    }
     Info("Drained {} chunked bytes.", body_size);
   } else {
     body_size = initial.size();
@@ -538,8 +545,9 @@ swoc::Errata HttpHeader::drain_body(Stream &stream,
       body_size += n;
     }
     if (body_size > content_length) {
-      errata.error(R"(Invalid response - expected {} fixed bytes, drained {} byts.)",
-                   content_length, body_size);
+      errata.error(
+          R"(Invalid response - expected {} fixed bytes, drained {} byts.)",
+          content_length, body_size);
       return errata;
     }
     Info("Drained {} bytes.", body_size);
@@ -591,7 +599,7 @@ swoc::Rv<ssize_t> HttpHeader::read_header(Stream &reader,
         zret.errata().error(
             R"(Connection closed unexpectedly after {} bytes while waiting for header - {}.)",
             w.size(), swoc::bwf::Errno{});
-         printf("error\n");
+        printf("error\n");
       } else {
         zret = 0; // clean close between transactions.
       }
@@ -734,10 +742,9 @@ HttpHeader::parse_request(swoc::TextView data) {
 
     auto first_line{data.take_prefix_at('\n')};
     if (first_line) {
-      if (first_line.suffix(1)[0] == '\r') {
-        first_line.remove_suffix(1);
-      }
-      _method = this->localize(first_line.prefix_if(&isspace));
+      first_line.remove_suffix_if(&isspace);
+      _method = this->localize(first_line.take_prefix_if(&isspace));
+      _url = this->localize(first_line.ltrim_if(&isspace).take_prefix_if(&isspace));
 
       while (data) {
         auto field{data.take_prefix_at('\n').rtrim_if(&isspace)};
@@ -813,6 +820,8 @@ operator()(BufferWriter &w, const swoc::bwf::Spec &spec) const {
     } else {
       bwformat(w, spec, "*N/A*");
     }
+  } else if (0 == strcasecmp("url"_tv, name)) {
+    bwformat(w, spec, _hdr._url);
   } else {
     bwformat(w, spec, "*N/A*");
   }
@@ -848,61 +857,44 @@ swoc::Errata Load_Replay_File(swoc::file::path const &path,
                     if (txn_list_node.IsSequence()) {
                       if (txn_list_node.size() > 0) {
                         for (auto const &txn_node : txn_list_node) {
-                          if (txn_node[YAML_PROXY_REQ_KEY] &&
-                              txn_node[YAML_SERVER_RSP_KEY] &&
-                              txn_node[YAML_CLIENT_REQ_KEY] &&
-                              txn_node[YAML_PROXY_RSP_KEY]) {
-                            result.note(handler.txn_open(txn_node));
-                            if (result.is_ok()) {
-                              result.note(handler.client_request(
-                                  txn_node[YAML_CLIENT_REQ_KEY]));
-                              result.note(handler.proxy_request(
-                                  txn_node[YAML_PROXY_REQ_KEY]));
-                              result.note(handler.server_response(
-                                  txn_node[YAML_SERVER_RSP_KEY]));
-                              result.note(handler.proxy_response(
-                                  txn_node[YAML_PROXY_RSP_KEY]));
-                              result.note(handler.txn_close());
+                          result = handler.txn_open(txn_node);
+                          if (result.is_ok()) {
+                            if (auto creq_node{txn_node[YAML_CLIENT_REQ_KEY]};
+                                creq_node) {
+                              result.note(handler.client_request(creq_node));
                             }
-                            errata = std::move(result);
-                          // Deal with the cached case
-                          } else if (txn_node[YAML_CLIENT_REQ_KEY] && txn_node[YAML_PROXY_RSP_KEY]) {
-                            result.note(handler.txn_open(txn_node));
-                            if (result.is_ok()) {
-                              result.note(handler.client_request(
-                                  txn_node[YAML_CLIENT_REQ_KEY]));
-                              result.note(handler.proxy_request(
-                                  txn_node[YAML_CLIENT_REQ_KEY]));
-                              result.note(handler.proxy_response(
-                                  txn_node[YAML_PROXY_RSP_KEY]));
-                              result.note(handler.server_response(
-                                  txn_node[YAML_PROXY_RSP_KEY]));
-                              result.note(handler.txn_close());
+                            if (auto preq_node{txn_node[YAML_PROXY_REQ_KEY]};
+                                preq_node) {
+                              result.note(handler.proxy_request(preq_node));
                             }
-                          } else {
-                            errata.error(
-                                R"(Transaction node at {} in "{}" did not contain all four required HTTP header keys.)",
-                                txn_node.Mark(), path);
+                            if (auto ursp_node{txn_node[YAML_SERVER_RSP_KEY]};
+                                ursp_node) {
+                              result.note(handler.server_response(ursp_node));
+                            }
+                            if (auto prsp_node{txn_node[YAML_PROXY_RSP_KEY]};
+                                prsp_node) {
+                              result.note(handler.proxy_response(prsp_node));
+                            }
+                            result.note(handler.txn_close());
                           }
                         }
                       } else {
-                        errata.info(
+                        result.info(
                             R"(Transaction list at {} in session at {} in "{}" is an empty list.)",
                             txn_list_node.Mark(), ssn_node.Mark(), path);
                       }
                     } else {
-                      errata.error(
+                      result.error(
                           R"(Transaction list at {} in session at {} in "{}" is not a list.)",
                           txn_list_node.Mark(), ssn_node.Mark(), path);
                     }
                   } else {
-                    errata.error(R"(Session at {} in "{}" has no "{}" key.)",
+                    result.error(R"(Session at {} in "{}" has no "{}" key.)",
                                  ssn_node.Mark(), path, YAML_TXN_KEY);
                   }
                   result.note(handler.ssn_close());
-                } else {
-                  errata.note(result);
                 }
+                errata.note(result);
               }
             } else {
               errata.info(R"(Session list at {} in "{}" is an empty list.)",
@@ -928,21 +920,30 @@ Load_Replay_Directory(swoc::file::path const &path,
                       int n_threads) {
   swoc::Errata errata;
   std::mutex local_mutex;
+  std::error_code ec;
 
   dirent **elements = nullptr;
 
+  auto stat{swoc::file::status(path, ec)};
+  if (ec) {
+    return Errata().error(R"(Invalid test directory "{}" - [{}])", path, ec);
+  } else if (swoc::file::is_regular_file(stat)) {
+    return loader(path);
+  } else if (!swoc::file::is_dir(stat)) {
+    return Errata().error(R"("{}" is not a file or a directory.)", path);
+  }
+
   if (0 == chdir(path.c_str())) {
-    int n_sessions =
-        scandir(".", &elements,
-                [](const dirent *entry) -> int {
-                  return 0 == strcasecmp(swoc::TextView{entry->d_name,
-                                                        strlen(entry->d_name)}
-                                             .suffix_at('.'),
-                                         "json")
-                             ? 1
-                             : 0;
-                },
-                &alphasort);
+    int n_sessions = scandir(
+        ".", &elements,
+        [](const dirent *entry) -> int {
+          auto extension =
+              swoc::TextView{entry->d_name, strlen(entry->d_name)}.suffix_at(
+                  '.');
+          return 0 == strcasecmp(extension, "json") ||
+                 0 == strcasecmp(extension, "yaml");
+        },
+        &alphasort);
     if (n_sessions > 0) {
       std::atomic<int> idx{0};
       swoc::MemSpan<dirent *> entries{elements,
@@ -977,8 +978,7 @@ Load_Replay_Directory(swoc::file::path const &path,
   return errata;
 }
 
-swoc::Errata parse_ips(std::string arg, std::deque<swoc::IPEndpoint> &target)
-{
+swoc::Errata parse_ips(std::string arg, std::deque<swoc::IPEndpoint> &target) {
   swoc::Errata errata;
   int offset = 0;
   int new_offset;
@@ -992,12 +992,12 @@ swoc::Errata parse_ips(std::string arg, std::deque<swoc::IPEndpoint> &target)
       return errata;
     }
     target.push_back(addr);
-  } 
+  }
   return errata;
 }
 
-swoc::Errata resolve_ips(std::string arg, std::deque<swoc::IPEndpoint> &target)
-{
+swoc::Errata resolve_ips(std::string arg,
+                         std::deque<swoc::IPEndpoint> &target) {
   swoc::Errata errata;
   int offset = 0;
   int new_offset;
@@ -1011,7 +1011,7 @@ swoc::Errata resolve_ips(std::string arg, std::deque<swoc::IPEndpoint> &target)
       return errata;
     }
     target.push_back(tmp_target);
-  } 
+  }
   return errata;
 }
 
