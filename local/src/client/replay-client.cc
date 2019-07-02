@@ -217,6 +217,86 @@ swoc::Errata ClientReplayFileHandler::ssn_close() {
 
 void do_error() { printf("Bad stuff\n"); }
 
+swoc::Errata Run_H11_Transaction(Stream &stream, Txn const &txn) {
+  Info("Running transaction.");
+  swoc::Errata errata{txn._req.transmit(stream)};
+  if (errata.is_ok()) {
+    HttpHeader rsp_hdr;
+    swoc::LocalBufferWriter<MAX_HDR_SIZE> w;
+    Info("Reading response header.");
+    auto read_result{rsp_hdr.read_header(stream, w)};
+    if (read_result.is_ok()) {
+      ssize_t body_offset{read_result};
+      auto result{rsp_hdr.parse_response(TextView(w.data(), body_offset))};
+      if (result.is_ok()) {
+        if (rsp_hdr._status == 100) {
+          Info("100-Continue response. Read another header.");
+          rsp_hdr = HttpHeader{};
+          w.clear();
+          auto read_result{rsp_hdr.read_header(stream, w)};
+          if (read_result.is_ok()) {
+            body_offset = read_result;
+            auto result{
+                rsp_hdr.parse_response(TextView(w.data(), body_offset))};
+            if (result.is_ok()) {
+            } else {
+              errata.error(R"(Failed to parse post 100 header.)");
+              return errata;
+            }
+          } else {
+            errata.error(R"(Failed to read post 100 header.)");
+            return errata;
+          }
+        }
+        if (rsp_hdr._status != txn._rsp._status && rsp_hdr._status != 200 &&
+            rsp_hdr._status != 304 && txn._rsp._status != 200 &&
+            txn._rsp._status != 304) {
+          errata.error(R"(Invalid status expected {} got {}. url={}.)",
+                       txn._rsp._status, rsp_hdr._status, txn._req._url);
+          do_error();
+          return errata;
+        }
+        Info("Reading response body offset={}.", w.view().substr(body_offset));
+        rsp_hdr.update_content_length(txn._req._method);
+        rsp_hdr.update_transfer_encoding();
+        /* Looks like missing plugins is causing issues with length mismatches
+         */
+        /*
+        if (txn._rsp._content_length_p != rsp_hdr._content_length_p) {
+          errata.error(R"(Content length specificaton mismatch: got {} ({})
+        expected {}({}) . url={})", rsp_hdr._content_length_p ? "length" :
+        "chunked", rsp_hdr._content_size, txn._rsp._content_length_p ? "length"
+        : "chunked" , txn._rsp._content_size, txn._req._url); return errata;
+        }
+        if (txn._rsp._content_length_p && txn._rsp._content_size !=
+        rsp_hdr._content_size) { errata.error(R"(Content length mismatch: got
+        {}, expected {}. url={})", rsp_hdr._content_size,
+        txn._rsp._content_size, txn._req._url); return errata;
+        }
+        */
+        errata = rsp_hdr.drain_body(stream, w.view().substr(body_offset));
+        if (!errata.is_ok()) {
+          do_error();
+        }
+      } else {
+        errata.error(R"(Invalid response. url={})", txn._req._url);
+        errata.note(result);
+        do_error();
+      }
+    } else {
+      errata.error(R"(Invalid response read url={}.)", txn._req._url);
+      errata.note(read_result);
+      std::cerr << errata;
+      do_error();
+    }
+  }
+  return errata;
+}
+
+swoc::Errata Run_H2_Transaction(Stream &stream, Txn const &txn) {
+  
+}
+
 swoc::Errata Run_Transaction(Stream &stream, Txn const &txn) {
   Info("Running transaction.");
   swoc::Errata errata{txn._req.transmit(stream)};
@@ -353,7 +433,12 @@ swoc::Errata Run_Session(Ssn const &ssn, swoc::IPEndpoint const &target,
         errata = do_connect(stream.get(), real_target);
       }
       if (errata.is_ok()) {
-        errata = Run_Transaction(*stream, txn);
+        if (ssn.is_h2) {
+          errata = Run_H2_Transaction(*stream, txn);
+        } else {
+          errata = Run_H11_Transaction(*stream, txn);
+        }
+        
         if (!errata.is_ok()) {
           errata.error(R"(Failed url={}.)", txn._req._url);
           std::cerr << errata;
