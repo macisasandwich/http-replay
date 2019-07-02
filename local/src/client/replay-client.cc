@@ -38,6 +38,7 @@ struct Ssn {
   unsigned _line_no = 0;
   uint64_t _start; ///< Start time in HR ticks.
   bool is_tls = false;
+  bool is_h2 = false;
 };
 std::mutex LoadMutex;
 
@@ -104,6 +105,7 @@ void ClientReplayFileHandler::txn_reset() {
 
 swoc::Errata ClientReplayFileHandler::ssn_open(YAML::Node const &node) {
   static constexpr TextView TLS_PREFIX{"tls"};
+  static constexpr TextView H2_PREFIX{"h2"};
   swoc::Errata errata;
   _ssn = new Ssn();
   _ssn->_path = _path;
@@ -113,6 +115,9 @@ swoc::Errata ClientReplayFileHandler::ssn_open(YAML::Node const &node) {
     auto proto_node{node[YAML_SSN_PROTOCOL_KEY]};
     if (proto_node.IsSequence()) {
       for (auto const &n : proto_node) {
+        if (TextView{n.Scalar()}.starts_with_nocase(H2_PREFIX)) {
+          _ssn->is_h2 = true;
+        }
         if (TextView{n.Scalar()}.starts_with_nocase(TLS_PREFIX)) {
           _ssn->is_tls = true;
           break;
@@ -329,7 +334,10 @@ swoc::Errata Run_Session(Ssn const &ssn, swoc::IPEndpoint const &target,
 
   Info(R"(Starting session "{}":{}.)", ssn._path, ssn._line_no);
 
-  if (ssn.is_tls) {
+  if (ssn.is_h2) { 
+    stream.reset(new TLSStream());
+    real_target = &target_https;
+  } else if (ssn.is_tls) {
     stream.reset(new TLSStream());
     real_target = &target_https;
   } else {
